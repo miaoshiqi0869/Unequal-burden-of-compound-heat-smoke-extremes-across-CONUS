@@ -1,14 +1,13 @@
 # coding = 'utf-8'
 import numpy as np
 import xarray as xr
-import time as tm
 
 def heat_identify(temp, threshold, cons):
     '''
     input:
         temp: DataArray (time, id)
-        threshold: 绝对阈值(float)/相对阈值(array:(id,)或(month,id))
-        consecutive days: int 连续天数
+        threshold: 95th threshold (array:(id,))
+        consecutive days: 1 day
     return:
         HD_flag (time, id): -1:non HD | 1:consecutive HDs | 0:occasional HD or nan
     '''
@@ -83,8 +82,7 @@ def events_identify(HD_flag, SD_flag, lag_window):
     # ==========================================
     def mark_continuous_events(flag, preliminary):
         '''输入flag (bool数组)和preliminary_compound, 返回补充标记连续段后的HD_segments/WFS_segments'''
-        start_time = tm.time()
-
+        
         # 计算差分找到连续段边界
         diff = flag.astype(np.int8).diff(dim='time', label='upper') # 差分结果对齐到后一个时间点, 生成形状为(time-1, id)
         diff_aligned = xr.concat(
@@ -120,9 +118,7 @@ def events_identify(HD_flag, SD_flag, lag_window):
                 continuous_slice = slice(start_idx, end_idx + 1)
                 if preliminary.isel(time=continuous_slice, id=id_idx).any():    # 如果连续段中含compound day
                     full_segments[{'time': continuous_slice, 'id': id_idx}] = True  # 整个连续段均标记为compound day
-
-        print(f'补充标记完成, 共耗时{tm.time() - start_time}秒')
-
+                    
         return full_segments
     
     # ==========================================
@@ -198,8 +194,7 @@ def process_all_yrs(metric, temp_dir, pm_dir, temp_threshold, pm_threshold, temp
     results=[]
     months=[]   # 存储逐月统计结果
     for yr in range(2006, 2024):
-        start_time=tm.time()
-
+        
         with xr.open_dataarray(rf'{temp_dir}\{metric}_{yr}.nc') as temp:
             with xr.open_dataarray(rf'{pm_dir}\smokePM_complete_{yr}.nc') as pm25:
                 result_ds, monthly_ds = process_yr(yr, temp, metric=metric,
@@ -212,8 +207,7 @@ def process_all_yrs(metric, temp_dir, pm_dir, temp_threshold, pm_threshold, temp
                 result_ds.close()
                 months.append(monthly_ds)
                 monthly_ds.close()
-        print(f'{yr}年处理完毕, 耗时{tm.time() - start_time}秒!\n')
-    
+        
     # 合并多年结果并存为identify_10km.nc
     identify_ds = xr.concat(results, dim='year')
     identify_ds.to_netcdf(rf'{combo_path}\identify_10km.nc', mode='w')
@@ -223,9 +217,7 @@ def process_all_yrs(metric, temp_dir, pm_dir, temp_threshold, pm_threshold, temp
     identify_ds.close()
     identify_monthly_ds.close()
 
-    print(f'Identify hazards完毕, 共耗时{(tm.time() - total_start_time) / 60}分钟!\n')
-
-
+    
 
 '''
 print(identify_ds):
@@ -249,19 +241,3 @@ Data variables:
 Attributes:
     temp_threshold:  95th for 1 day
     pm_threshold:    15 μg/m3
-
-print(identify_monthly_ds):
-<xarray.Dataset> Size: 66MB
-Dimensions:        (id: 100156, year: 18, month: 12)
-Coordinates:
-  * year           (year) int64 144B 2006 2007 2008 2009 ... 2020 2021 2022 2023
-  * month          (month) int64 96B 1 2 3 4 5 6 7 8 9 10 11 12
-    longitude      (id) float32 401kB -81.76 -81.66 -81.57 ... -124.8 -124.7
-    latitude       (id) float32 401kB 24.5 24.51 24.51 ... 48.45 48.5 48.56
-  * id             (id) int32 401kB 1397 1398 1399 1400 ... 221553 221554 221555
-    quantile       float64 8B 0.95
-Data variables:
-    HW_days        (id, year, month) int8 22MB 0 0 0 0 0 0 7 ... 2 2 9 4 3 0 0
-    WFS_days       (id, year, month) int8 22MB 0 0 0 0 0 0 0 0 ... 0 0 0 0 0 0 0
-    compound_days  (id, year, month) int8 22MB 0 0 0 0 0 0 0 0 ... 0 0 1 0 0 0 0
-'''
